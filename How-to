@@ -1,0 +1,106 @@
+==================================================== Install metallb =======================================================
+
+## https://metallb.universe.tf/installation/
+
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.9/config/manifests/metallb-native.yaml
+
+
+k -n metallb-system get all
+
+vi IPAddressPools.yaml
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: first-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 192.168.6.241-192.168.6.242
+---
+k create -f IPAddressPools.yaml
+k get ipaddresspools.metallb.io -A
+
+vi L2Advertisement.yaml
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: example
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - first-pool
+---
+k create -f L2Advertisement.yaml
+
+k get L2Advertisement.metallb.io -A 
+
+
+### Test LoadBalancer
+k create deploy nginx --image nginx 
+k expose deploy nginx --port 80 --type LoadBalancer 
+
+
+==================================== Install ingreess-controller  ======================
+helm search repo ingress
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 
+hel repo update 
+helm repo list 
+helm show values ingress-nginx/ingress-nginx > /tmp/ingress-value.yaml 
+nano ingress-value.yaml 
+---
+hostNetwork: true
+hostPort:
+  enabled: true 
+
+#DaemonSet or Deployment
+kind: DaemonSet
+---
+
+k create ns ingress-nginx
+helm install myingress ingress-nginx/ingress-nginx  -n ingress-nginx --values /tmp/ingress-value.yaml 
+helm list -n ingress-nginx 
+kubectl -n ingress=nginx get all 
+
+'kubectl --namespace ingress-nginx get services -o wide -w myingress-ingress-nginx-controller'
+
+
+
+============================================================
+An example Ingress that makes use of the controller:
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    name: example
+    namespace: foo
+  spec:
+    ingressClassName: nginx
+    rules:
+      - host: www.example.com
+        http:
+          paths:
+            - pathType: Prefix
+              backend:
+                service:
+                  name: exampleService
+                  port:
+                    number: 80
+              path: /
+    # This section is only required if TLS is to be enabled for the Ingress
+    tls:
+      - hosts:
+        - www.example.com
+        secretName: example-tls
+
+If TLS is enabled for the Ingress, a Secret containing the certificate and key must also be provided:
+
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: example-tls
+    namespace: foo
+  data:
+    tls.crt: <base64 encoded cert>
+    tls.key: <base64 encoded key>
+  type: kubernetes.io/tls
